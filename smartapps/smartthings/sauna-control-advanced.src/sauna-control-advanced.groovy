@@ -21,13 +21,13 @@ definition(
 )
 
 preferences {
-	section("Turn on this Sauna") {
-		input name: "outlets", title: "Which?", type: "capability.switch", multiple: true
+    section("Which one is the Sauna?") {
+		input name: "outlets", title: "Which?", type: "capability.switch", multiple: false
 	}
 	section("Shutoff pre-heating after this time") {
 		input name: "minutes", title: "Minutes?", type: "number", multiple: false
 	}
-    section("How many minutes before shutoff should I Warn?") {
+    section("How many minutes before auto-shutoff should I Warn?") {
 		input name: "warnminutes", title: "Minutes?", type: "number", multiple: false
 	}
     section("What should we watch for your arrival?") {
@@ -35,9 +35,6 @@ preferences {
 	}
      section("Do you have a primary light in the Sauna?") {
 		input name: "saunalight1", title: "Which?", type: "capability.switch", multiple: true, required: false
-	}
-    section("Do you have a secondary light in the Sauna?") {
-		input name: "saunalight2", title: "Which?", type: "capability.colorControl", multiple: true, required: false
 	}
     section("How long after you leave should I heat for") {
 		input name: "scheduledTurnOffMotion", title: "Minutes?", type: "number", multiple: false
@@ -55,26 +52,28 @@ preferences {
 }
 def installed()
 {
-	subscribe(app, appTouch)
-    subscribe(motionsensor, "motion.active", motionActiveHandler)
+subscribe(motionsensor, "motion.active", motionActiveHandler)
     subscribe(temperatureSensor1, "temperature", temperatureHandler)
+    subscribe(outlets, "switch.on", switchHandlerOn)
+    subscribe(outlets, "switch.off", switchHandlerOff)
 }
 
 def updated()
 {
-	unsubscribe()
-	subscribe(app, appTouch)
-    subscribe(motionsensor, "motion.active", motionActiveHandler)
+	unsubscribe() 
+	subscribe(motionsensor, "motion.active", motionActiveHandler)
     subscribe(temperatureSensor1, "temperature", temperatureHandler)
+    subscribe(outlets, "switch.on", switchHandlerOn)
+    subscribe(outlets, "switch.off", switchHandlerOff)
 }
-def appTouch(evt) {
-	log.debug "appTouch: $evt"
-	outlets.on()
+
+
+def switchHandlerOn(evt) {
+	log.debug "switchHandler: $evt"
+    
     saunalight1.setLevel(10)
     saunalight1.on()
-    saunalight2.setColor(hue: 61, saturation: 100, level: 100)
-    saunalight2.on()
-    saunastatuslight.setColor(hue: 61, saturation: 100, level:100)
+    saunastatuslight.setColor(hue: 11, saturation: 6, level:100)
     saunastatuslight.on()
     def delay = (minutes*60)
     def delaywarn = ((minutes-warnminutes) * 60)
@@ -83,21 +82,29 @@ def appTouch(evt) {
 
 }
 
+
 def motionActiveHandler(evt) {
 log.debug "Motion detected, keep sauna on for ${scheduledTurnOffMotion} minutes."
 unschedule("scheduledTurnOffwarn")
 saunalight1.setLevel(50)
-saunalight2.setLevel(50)
 runIn((scheduledTurnOffMotion*60),scheduledTurnOff)
 }
 
 def scheduledTurnOff() {
 	outlets.off()
     saunalight1.off()
-    saunalight2.off()
     saunastatuslight.off()
 	unschedule("scheduledTurnOff") // Temporary work-around to scheduling bug
     unsubscribe(temperatureSensor1)
+    unsubscribe(motionsensor)
+}
+
+def switchHandlerOff(evt) {
+    saunalight1.off()
+    saunastatuslight.off()
+	unschedule("scheduledTurnOff") // Temporary work-around to scheduling bug
+    unsubscribe(temperatureSensor1)
+    unsubscribe(motionsensor)
 }
 def scheduledTurnOffwarn() {
 	def outletsstate = outlets.currentState
@@ -119,38 +126,38 @@ log.debug "In send color"
 	def hueColor = 47
     def saturation = 100
     def saunalighttempdesc = "none"
-        if (curtemp<70) {
+    def saunareadytemp = temperature1
+        if (curtemp < (saunareadytemp*(60/100)) ) {
         hueColor = 61
         saunalighttempdesc = "Deep Blue"
 		}
-		else if (curtemp>=70 && curtemp<75) {
+		else if (curtemp>=(saunareadytemp*(60/100)) && curtemp<(saunareadytemp*(70/100))) {
             hueColor = 47
             saunalighttempdesc = "Turquoise"
 		}
-		else if (curtemp>=75 && curtemp<80) {
+		else if (curtemp>=(saunareadytemp*(70/100)) && curtemp<(saunareadytemp*(80/100))) {
             hueColor = 33
             saunalighttempdesc = "Green"
 		}
-		else if (curtemp>=80 && curtemp<87) {
+		else if (curtemp>=(saunareadytemp*(80/100)) && curtemp<(saunareadytemp*(90/100))) {
             hueColor = 17
             saunalighttempdesc = "Yellow"
 		}
-		else if (curtemp>=87 && curtemp<95) {
+		else if (curtemp>=(saunareadytemp*(90/100)) && curtemp<saunareadytemp) {
             hueColor = 7
             saunalighttempdesc = "Orange"
 		}
-		else if(curtemp>=95) {
+		else if(curtemp>=saunareadytemp) {
             hueColor = 0
             saunalighttempdesc = "Red"
 		}
 		
 	//Change the color of the light
 	def saunalighttemp = [hue: hueColor, saturation: saturation, level: 100]  
-	saunalight2.setColor(saunalighttemp)
 	saunastatuslight.setColor(saunalighttemp)
-        log.debug "$app.label: Setting Color = $saunalighttempdesc"
+        log.debug "$app.label: Temp is: $curtemp Setting Color = $saunalighttempdesc"
 
-	def saunareadytemp = temperature1
+	
   if (evt.doubleValue >= saunareadytemp){  
 			log.debug "Sauna Temp at $saunareadytemp:  You should use sauna"
 			send("Your sauna is now hot: ${evt.value}${evt.unit?:"F"}")
