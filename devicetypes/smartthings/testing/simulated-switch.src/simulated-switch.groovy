@@ -12,10 +12,12 @@
  *
  */
 metadata {
-	
+
     definition (name: "Simulated Switch", namespace: "smartthings/testing", author: "bob") {
 		capability "Switch"
         capability "Relay Switch"
+		capability "Sensor"
+		capability "Actuator"
 
 		command "onPhysical"
 		command "offPhysical"
@@ -37,9 +39,7 @@ metadata {
 	}
 }
 
-def parse(String description) {
-	def pair = description.split(":")
-	createEvent(name: pair[0].trim(), value: pair[1].trim())
+def parse(description) {
 }
 
 def on() {
