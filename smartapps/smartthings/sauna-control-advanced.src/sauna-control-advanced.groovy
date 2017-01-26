@@ -21,39 +21,33 @@ definition(
 )
 
 preferences {
-    section("Which one is the Sauna?") {
-		input name: "outlets", title: "Which?", type: "capability.switch", multiple: false
+    section("Tell me about your Sauna:") {
+		input name: "outlets", title: "Which one is your sauna heater?", type: "capability.switch", multiple: false
+        input "motionsensor", "capability.motionSensor", title: "What motion do we watch for your arrival?", multiple: false
+        input "temperatureSensor1", "capability.temperatureMeasurement", title: "What temp should we use for sauna?", multiple: false
 	}
-	section("Shutoff pre-heating after this time") {
-		input name: "minutes", title: "Minutes?", type: "number", multiple: false
+	section("Let's setup your Sauna") {
+		input name: "minutes", title: "When turned on, how long should the Sauna pre-heat before turning off?", type: "number"
+        input name:"scheduledTurnOffMotion", title: "How many minutes should I wait to make sure you are out of the Sauna?", type: "number", multiple: false
 	}
-    section("How many minutes before auto-shutoff should I Warn?") {
-		input name: "warnminutes", title: "Minutes?", type: "number", multiple: false
+    section( "Notifications" ) {
+		input "sendPushMessage", "enum", title: "Send a push notification when Sauna's ready?", metadata:[values:["Yes","No"]], required: true
+        input "temperature1", "number", title: "What temp is the Sauna ready?", defaultValue: "140"
+        input name: "warnminutes", title: "How many minutes before pre-heating shuts off should I alert you?", type: "number", defaultValue: "15"
+   }
+     section("Sauna Lighting (Optional)") {
+		input name:"saunalight", title: "Which is your main light?", type: "capability.switch", multiple: false, required: false, hideWhenEmpty: true
+        input "saunalightlevel1", "enum", title: "How bright should the main light be at BEFORE you enter?", metadata:[values:["5","10","25","50","75","100"]], defaultValue: "5"
+        input "saunalightlevel2", "enum", title: "How bright should the main light be at AFTER you enter?", metadata:[values:["5","10","25","50","75","100"]], defaultValue: "50"
+        input name: "saunastatuslight", title: "Do you have a light to show heating progress?", type: "capability.colorControl", multiple: false, required: false, hideWhenEmpty: true
+        input "saunastatuslightlevel", "enum", title: "How bright should the progress light be?", metadata:[values:["5","10","25","50","75","100"]], defaultValue: "50"
 	}
-    section("What should we watch for your arrival?") {
-		input "motionsensor", "capability.motionSensor", title: "Where?", multiple: false
-	}
-     section("Do you have a primary light in the Sauna?") {
-		input name: "saunalight1", title: "Which?", type: "capability.switch", multiple: true, required: false
-	}
-    section("How long after you leave should I heat for") {
-		input name: "scheduledTurnOffMotion", title: "Minutes?", type: "number", multiple: false
-	}
-     section("What temp is the Sauna ready?") {
-		input "temperature1", "number", title: "Temperature?"
-	}
-    section("What temp sensor should I watch for?") {
-		input "temperatureSensor1", "capability.temperatureMeasurement", title: "Where?", multiple: false
-	}
-     section("Do you have a light I can tell you the heat status?") {
-		input name: "saunastatuslight", title: "Which?", type: "capability.colorControl", multiple: true, required: false
-	}
+     
    
 }
 def installed()
 {
-subscribe(motionsensor, "motion.active", motionActiveHandler)
-    subscribe(temperatureSensor1, "temperature", temperatureHandler)
+
     subscribe(outlets, "switch.on", switchHandlerOn)
     subscribe(outlets, "switch.off", switchHandlerOff)
 }
@@ -61,22 +55,22 @@ subscribe(motionsensor, "motion.active", motionActiveHandler)
 def updated()
 {
 	unsubscribe() 
-	subscribe(motionsensor, "motion.active", motionActiveHandler)
-    subscribe(temperatureSensor1, "temperature", temperatureHandler)
     subscribe(outlets, "switch.on", switchHandlerOn)
     subscribe(outlets, "switch.off", switchHandlerOff)
 }
 
 
 def switchHandlerOn(evt) {
+subscribe(motionsensor, "motion.active", motionActiveHandler)
+subscribe(temperatureSensor1, "temperature", temperatureHandler)
 	log.debug "switchHandler: $evt"
-    
-    saunalight1.setLevel(10)
-    saunalight1.on()
-    saunastatuslight.setColor(hue: 11, saturation: 6, level:100)
+    saunalight.setLevel(saunalightlevel1)
+    saunalight.on()
+    saunastatuslight.setColor(hue: 11, saturation: 6, level: saunastatuslightlevel)
     saunastatuslight.on()
     def delay = (minutes*60)
     def delaywarn = ((minutes-warnminutes) * 60)
+    state.saunaSmsSent = (1483296519)
 	runIn(delaywarn, "scheduledTurnOffwarn")
     runIn(delay, "scheduledTurnOff")
 
@@ -86,33 +80,36 @@ def switchHandlerOn(evt) {
 def motionActiveHandler(evt) {
 log.debug "Motion detected, keep sauna on for ${scheduledTurnOffMotion} minutes."
 unschedule("scheduledTurnOffwarn")
-saunalight1.setLevel(50)
+saunalight.setLevel(saunalightlevel2)
 runIn((scheduledTurnOffMotion*60),scheduledTurnOff)
 }
 
 def scheduledTurnOff() {
 	outlets.off()
-    saunalight1.off()
+    saunalight.off()
     saunastatuslight.off()
 	unschedule("scheduledTurnOff") // Temporary work-around to scheduling bug
+    unschedule("scheduledTurnOffwarn") // Temporary work-around to scheduling bug
     unsubscribe(temperatureSensor1)
     unsubscribe(motionsensor)
+    log.debug "Scheduled Shut off"
 }
 
 def switchHandlerOff(evt) {
-    saunalight1.off()
+    saunalight.off()
     saunastatuslight.off()
 	unschedule("scheduledTurnOff") // Temporary work-around to scheduling bug
+    unschedule("scheduledTurnOffwarn")
     unsubscribe(temperatureSensor1)
     unsubscribe(motionsensor)
 }
 def scheduledTurnOffwarn() {
-	def outletsstate = outlets.currentState
+	def outletsstate = outlets.currentState("switch").value
+    log.debug "in scheduled turn off warning"
     if (outletsstate == "on" ) {
-    
-    if (sendPush) {
-        sendPush("Your sauna will shut off in ${warnminutes} minutes!")
-    }}
+    log.debug "Sauna should shut off in $warnminutes"
+        send("Your sauna will shut off in ${warnminutes} minutes!")
+    }
 	unschedule("scheduledTurnOffwarn") // Temporary work-around to scheduling bug
     
 }
@@ -153,23 +150,30 @@ log.debug "In send color"
 		}
 		
 	//Change the color of the light
-	def saunalighttemp = [hue: hueColor, saturation: saturation, level: 100]  
+	def saunalighttemp = [hue: hueColor, saturation: saturation, level: saunastatuslightlevel]  
 	saunastatuslight.setColor(saunalighttemp)
         log.debug "$app.label: Temp is: $curtemp Setting Color = $saunalighttempdesc"
 
-	
-  if (evt.doubleValue >= saunareadytemp){  
-			log.debug "Sauna Temp at $saunareadytemp:  You should use sauna"
-			send("Your sauna is now hot: ${evt.value}${evt.unit?:"F"}")
-            unsubscribe(temperatureSensor1)
+ if (evt.doubleValue >= saunareadytemp){ 
+		log.debug "Checking to see if you have already been notified about the temp:<= $saunareadytemp"
+def lastsms = state.saunaSmsSent
+def timeSinceLastSend = (now() - lastsms)
+
+if (timeSinceLastSend >= (1000*60*90))  {
+ log.debug "Sauna Temp at $saunareadytemp:  You should use sauna. Sending Push"
+            send("Your sauna is now ready: ${evt.value}${evt.unit?:"F"}")
+            state.saunaSmsSent = now()
+		} else 
+   log.debug "Sauna Temp at $saunareadytemp:  Push already sent within 90 min or state value: $timeSinceLastSend ago."	
+            }
 }
-}
+
 private send(msg) {
         if (sendPushMessage != "No") {
             log.debug("sending push message")
             sendPush(msg)
         }
-    
-
+        else {
+        log.debug "Sauna Temp at $saunareadytemp: Thou Push notifications are disabled" }
     log.debug msg
 }
